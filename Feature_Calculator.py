@@ -100,17 +100,27 @@ class ImmediateImpact:
         self.order_executed_quantity = list()
         # 缓存过去2000条消息
         self.order_book_cache = deque(maxlen=2000)
-        # 价格冲击指标
-        self.feature_list = list()
 
+        # 价格冲击指标
         # 创建feature字典->pd.DataFrame, 用于最后模型计算
-        self.feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
-                                                 'executed_price', 'executed_quantity',
-                                                 'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
-                                                 'action', 'market_spread', 'bid_market_depth',
-                                                 'ask_market_depth', 'order_quantity_imbalance',
-                                                 'short_amihub_illiquidity_ratio', 'long_amihub_illiquidity_ratio',
-                                                 'vwap', 'volatility', 'real_time_add_delete_ratio'])
+        self.t_session_feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
+                                                           'executed_price', 'executed_quantity',
+                                                           'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
+                                                           'action', 'market_spread', 'bid_market_depth',
+                                                           'ask_market_depth', 'order_quantity_imbalance',
+                                                           'short_amihub_illiquidity_ratio',
+                                                           'long_amihub_illiquidity_ratio',
+                                                           'vwap', 'volatility', 'real_time_add_delete_ratio'])
+
+        self.t1_session_feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
+                                                            'executed_price', 'executed_quantity',
+                                                            'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
+                                                            'action', 'market_spread', 'bid_market_depth',
+                                                            'ask_market_depth', 'order_quantity_imbalance',
+                                                            'short_amihub_illiquidity_ratio',
+                                                            'long_amihub_illiquidity_ratio',
+                                                            'vwap', 'volatility', 'real_time_add_delete_ratio'])
+
         # trading session manager
         self.trading_session_mgr = Nikkei_225_Index_Futures_Trading_Session(initial_trading_date)
 
@@ -158,7 +168,7 @@ class ImmediateImpact:
             level_diff = (self.order_book_cache[-1].ask1price - self.order_book_cache[
                 -2].ask1price) / self.tick_width
 
-        cur_result = ImmediateImpactStruct(
+        cur_executed_result = ImmediateImpactStruct(
             ts,
             self.order_book_cache[-1].isb,
             level_diff,
@@ -178,9 +188,11 @@ class ImmediateImpact:
             self.real_time_add_cancel_ratio
         )
 
-        cur_result.to_string()
-        self.feature_list.append(cur_result)
-        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
+        cur_executed_result.to_string()
+        if self.trading_session_mgr.is_t_session_opening_range(ts):
+            self.t_session_feature_map.loc[len(self.t_session_feature_map)] = cur_executed_result.to_dict()
+        if self.trading_session_mgr.is_t1_session_opening_range(ts):
+            self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_executed_result.to_dict()
 
     def norm_state_stat(self, ts: pd.Timestamp):
         bid_side_liquidity_diff = self.order_book_cache[-1].sum_bid_quantity - self.order_book_cache[
@@ -210,8 +222,10 @@ class ImmediateImpact:
 
         # cur_result.to_string()
         cur_result.to_string()
-        self.feature_list.append(cur_result)
-        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
+        if self.trading_session_mgr.is_t_session_opening_range(ts):
+            self.t_session_feature_map.loc[len(self.t_session_feature_map)] = cur_result.to_dict()
+        if self.trading_session_mgr.is_t1_session_opening_range(ts):
+            self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
         if data.action == Action.SecondOrderExecuted:
@@ -315,7 +329,8 @@ if __name__ == "__main__":
             md.calculate()
             immediate_impact.on_tick(md)
 
-    immediate_impact.feature_map.to_csv('./data/20230906/feature_map.csv')
+    immediate_impact.t_session_feature_map.to_csv('./data/20230906/t_session_feature_map.csv')
+    immediate_impact.t1_session_feature_map.to_csv('./data/20230906/t1_session_feature_map.csv')
 
     # bid_level_diff_array = list()
     # ask_level_diff_array = list()
