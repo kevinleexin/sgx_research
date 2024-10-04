@@ -162,8 +162,8 @@ class ImmediateImpact:
             ts,
             self.order_book_cache[-1].isb,
             level_diff,
-            self.order_book_cache[-1].last_price,
-            self.order_book_cache[-1].last_quantity,
+            self.order_executed_price[-1],
+            self.order_executed_quantity[-1],
             bid_side_liquidity_diff,
             ask_side_liquidity_diff,
             self.order_book_cache[-1].action,
@@ -178,7 +178,7 @@ class ImmediateImpact:
             self.real_time_add_cancel_ratio
         )
 
-        # cur_result.to_string()
+        cur_result.to_string()
         self.feature_list.append(cur_result)
         self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
 
@@ -192,8 +192,8 @@ class ImmediateImpact:
             ts,
             self.order_book_cache[-1].isb,
             0,
-            self.order_book_cache[-1].last_price,
-            self.order_book_cache[-1].last_quantity,
+            self.order_executed_price[-1],
+            self.order_executed_quantity[-1],
             bid_side_liquidity_diff,
             ask_side_liquidity_diff,
             self.order_book_cache[-1].action,
@@ -209,14 +209,15 @@ class ImmediateImpact:
         )
 
         # cur_result.to_string()
+        cur_result.to_string()
         self.feature_list.append(cur_result)
         self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
         if data.action == Action.SecondOrderExecuted:
-            self.calc_price_level_impact_after_order_executed(data.timestamp)
             self.order_executed_price.append(data.last_price)
             self.order_executed_quantity.append(data.last_quantity)
+            self.calc_price_level_impact_after_order_executed(data.timestamp)
             return
 
         elif data.action == Action.AddOrder:
