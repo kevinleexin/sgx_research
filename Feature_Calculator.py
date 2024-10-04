@@ -10,10 +10,11 @@ import matplotlib.pyplot as plt
 
 
 class ImmediateImpactStruct:
-    def __init__(self, isb=False, level_diff=0, price=0.0, quantity=0, bid_liquidity_diff=0, ask_liquidity_diff=0,
+    def __init__(self, ts, isb=False, level_diff=0, price=0.0, quantity=0, bid_liquidity_diff=0, ask_liquidity_diff=0,
                  action=0,
                  spread=0, b_market_depth=0, a_market_depth=0, imbalance=0.0, short_ai_ratio=0.0, long_ai_ratio=0.0,
                  vwap=0.0, vol=0.0, add_delete_ratio=0.0):
+        self.ts = ts
         self.isb = isb
         self.price_level_diff = level_diff  # y
         self.executed_price = price
@@ -38,7 +39,8 @@ class ImmediateImpactStruct:
         self.real_time_add_delete_ratio = add_delete_ratio
 
     def to_string(self):
-        print(f"isb: {self.isb}, "
+        print(f"ts: {self.ts},"
+              f"isb: {self.isb}, "
               f"price_level_diff: {self.price_level_diff},"
               f"executed_price: {self.executed_price}, "
               f"executed_quantity: {self.executed_quantity}, "
@@ -54,6 +56,25 @@ class ImmediateImpactStruct:
               f"vwap: {self.vwap},"
               f"volatility: {self.vol},"
               f"real_time_add_delete_ratio: {self.real_time_add_delete_ratio}")
+
+    def to_dict(self) -> dict:
+        return {'ts': self.ts,
+                'isb': self.isb,
+                'price_level_diff': self.price_level_diff,
+                'executed_price': self.executed_price,
+                'executed_quantity': self.executed_quantity,
+                'bid_side_liquidity_diff': self.bid_side_liquidity_diff,
+                'ask_side_liquidity_diff': self.ask_side_liquidity_diff,
+                'action': self.action,
+                'market_spread': self.market_spread,
+                'bid_market_depth': self.bid_market_depth,
+                'ask_market_depth': self.ask_market_depth,
+                'order_quantity_imbalance': self.Imbalance,
+                'short_amihub_illiquidity_ratio': self.short_Amihub_Illiquidity_Ratio,
+                'long_amihub_illiquidity_ratio': self.long_Amihub_Illiquidity_Ratio,
+                'vwap': self.vwap,
+                'volatility': self.vol,
+                'real_time_add_delete_ratio': self.real_time_add_delete_ratio}
 
 
 class ImmediateImpact:
@@ -83,7 +104,13 @@ class ImmediateImpact:
         self.feature_list = list()
 
         # 创建feature字典->pd.DataFrame, 用于最后模型计算
-        self.feature_map = dict()
+        self.feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
+                                                 'executed_price', 'executed_quantity',
+                                                 'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
+                                                 'action', 'market_spread', 'bid_market_depth',
+                                                 'ask_market_depth', 'order_quantity_imbalance',
+                                                 'short_amihub_illiquidity_ratio', 'long_amihub_illiquidity_ratio',
+                                                 'vwap', 'volatility', 'real_time_add_delete_ratio'])
         # trading session manager
         self.trading_session_mgr = Nikkei_225_Index_Futures_Trading_Session(initial_trading_date)
 
@@ -109,7 +136,7 @@ class ImmediateImpact:
             self.event_statistic(data)
             self.prev_ts = data.timestamp
 
-    def calc_price_level_impact_after_order_executed(self):
+    def calc_price_level_impact_after_order_executed(self, ts: pd.Timestamp):
         """
         calc 价格瞬时冲击
         :return:
@@ -123,7 +150,6 @@ class ImmediateImpact:
         ask_side_liquidity_diff = self.order_book_cache[-1].sum_ask_quantity - self.order_book_cache[
             -2].sum_ask_quantity
 
-        level_diff = 0
         if self.order_book_cache[-1].isb:
             level_diff = (self.order_book_cache[-2].bid1price - self.order_book_cache[
                 -1].bid1price) / self.tick_width
@@ -133,6 +159,7 @@ class ImmediateImpact:
                 -2].ask1price) / self.tick_width
 
         cur_result = ImmediateImpactStruct(
+            ts,
             self.order_book_cache[-1].isb,
             level_diff,
             self.order_book_cache[-1].last_price,
@@ -153,14 +180,16 @@ class ImmediateImpact:
 
         # cur_result.to_string()
         self.feature_list.append(cur_result)
+        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
 
-    def norm_state_stat(self):
+    def norm_state_stat(self, ts: pd.Timestamp):
         bid_side_liquidity_diff = self.order_book_cache[-1].sum_bid_quantity - self.order_book_cache[
             -2].sum_bid_quantity
         ask_side_liquidity_diff = self.order_book_cache[-1].sum_ask_quantity - self.order_book_cache[
             -2].sum_ask_quantity
 
         cur_result = ImmediateImpactStruct(
+            ts,
             self.order_book_cache[-1].isb,
             0,
             self.order_book_cache[-1].last_price,
@@ -181,10 +210,11 @@ class ImmediateImpact:
 
         # cur_result.to_string()
         self.feature_list.append(cur_result)
+        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
         if data.action == Action.SecondOrderExecuted:
-            self.calc_price_level_impact_after_order_executed()
+            self.calc_price_level_impact_after_order_executed(data.timestamp)
             self.order_executed_price.append(data.last_price)
             self.order_executed_quantity.append(data.last_quantity)
             return
@@ -193,11 +223,15 @@ class ImmediateImpact:
             add_quantity = data.sum_quantity_in_levels - self.order_book_cache[-2].sum_quantity_in_levels
             self.add_order_event.append(add_quantity)
             self.real_time_add_cancel_ratio = self.real_time_add_delete_ratio_calc(self.long_term_lookback)
+            self.norm_state_stat(data.timestamp)
+            return
 
         elif data.action == Action.OrderDelete:
             delete_quantity = self.order_book_cache[-2].sum_quantity_in_levels - data.sum_quantity_in_levels
             self.delete_order_event.append(delete_quantity)
             self.real_time_add_cancel_ratio = self.real_time_add_delete_ratio_calc(self.long_term_lookback)
+            self.norm_state_stat(data.timestamp)
+            return
 
     def market_data_filter(self, data):
         # filter non-trading session
@@ -279,6 +313,8 @@ if __name__ == "__main__":
         if md.is_valid():
             md.calculate()
             immediate_impact.on_tick(md)
+
+    immediate_impact.feature_map.to_csv('./data/20230906/feature_map.csv')
 
     # bid_level_diff_array = list()
     # ask_level_diff_array = list()
