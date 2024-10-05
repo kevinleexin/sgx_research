@@ -129,22 +129,34 @@ class ImmediateImpact:
                                                            'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
                                                            'action', 'market_spread', 'bid_market_depth',
                                                            'ask_market_depth', 'order_quantity_imbalance',
+<<<<<<< HEAD
                                                            'weighted_imbalance'
                                                            'short_amihub_illiquidity_ratio',
                                                            'long_amihub_illiquidity_ratio',
                                                            'vwap', 'volatility', 'real_time_add_delete_ratio',
                                                            'book_pressure', 'vpin'])
+=======
+                                                           'short_amihub_illiquidity_ratio',
+                                                           'long_amihub_illiquidity_ratio',
+                                                           'vwap', 'volatility', 'real_time_add_delete_ratio'])
+>>>>>>> ac3463a2cb32f94e3d91e130b629392e248c00fd
 
         self.t1_session_feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
                                                             'executed_price', 'executed_quantity',
                                                             'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
                                                             'action', 'market_spread', 'bid_market_depth',
                                                             'ask_market_depth', 'order_quantity_imbalance',
+<<<<<<< HEAD
                                                             'weighted_imbalance',
                                                             'short_amihub_illiquidity_ratio',
                                                             'long_amihub_illiquidity_ratio',
                                                             'vwap', 'volatility', 'real_time_add_delete_ratio',
                                                             'book_pressure', 'vpin'])
+=======
+                                                            'short_amihub_illiquidity_ratio',
+                                                            'long_amihub_illiquidity_ratio',
+                                                            'vwap', 'volatility', 'real_time_add_delete_ratio'])
+>>>>>>> ac3463a2cb32f94e3d91e130b629392e248c00fd
 
         # trading session manager
         self.trading_session_mgr = Nikkei_225_Index_Futures_Trading_Session(initial_trading_date)
