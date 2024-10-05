@@ -4,6 +4,8 @@ from collections import deque
 import pandas as pd
 import numpy as np
 from Trading_Session import Nikkei_225_Index_Futures_Trading_Session
+from typing import Optional
+from Streaming_Vpin import OnlineVPIN, StreamingVPIN
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -12,8 +14,10 @@ import matplotlib.pyplot as plt
 class ImmediateImpactStruct:
     def __init__(self, ts, isb=False, level_diff=0, price=0.0, quantity=0, bid_liquidity_diff=0, ask_liquidity_diff=0,
                  action=0,
-                 spread=0, b_market_depth=0, a_market_depth=0, imbalance=0.0, short_ai_ratio=0.0, long_ai_ratio=0.0,
-                 vwap=0.0, vol=0.0, add_delete_ratio=0.0):
+                 spread=0, b_market_depth=0, a_market_depth=0, imbalance=0.0, wimbalance=0.0,
+                 short_ai_ratio=0.0, long_ai_ratio=0.0,
+                 vwap=0.0, vol=0.0, add_delete_ratio=0.0,
+                 book_pressure=0.0):
         self.ts = ts
         self.isb = isb
         self.price_level_diff = level_diff  # y
@@ -28,6 +32,7 @@ class ImmediateImpactStruct:
         self.bid_market_depth = b_market_depth  # sum(bid1-10.quantity)
         self.ask_market_depth = a_market_depth  # sum(ask1-10.quantity)
         self.Imbalance = imbalance  # (sum_bid_quantity - sum_ask_quantity) / (sum_bid_quantity + sum_ask_quantity)
+        self.weighted_Imbalance = wimbalance
         self.short_Amihub_Illiquidity_Ratio = short_ai_ratio  # (price_return_t) / sum_last_quantity_t
         self.long_Amihub_Illiquidity_Ratio = long_ai_ratio
         self.vwap = vwap
@@ -37,6 +42,12 @@ class ImmediateImpactStruct:
 
         # call_delete_ration
         self.real_time_add_delete_ratio = add_delete_ratio
+
+        # book_pressure
+        self.book_pressure = book_pressure
+
+        # vpin
+        self.vpin : Optional[float] = 0.0
 
     def to_string(self):
         print(f"ts: {self.ts},"
@@ -50,12 +61,15 @@ class ImmediateImpactStruct:
               f"market_spread: {self.market_spread},"
               f"bid_market_depth: {self.bid_market_depth},"
               f"ask_market_depth: {self.ask_market_depth},"
-              f"order_quantity_imbalance: {self.Imbalance}"
+              f"order_quantity_imbalance: {self.Imbalance},"
+              f"weighted_imbalance: {self.weighted_Imbalance},"
               f"short_amihub_illiquidity_ratio: {self.short_Amihub_Illiquidity_Ratio},"
               f"long_amihub_illiquidity_ratio: {self.long_Amihub_Illiquidity_Ratio},"
               f"vwap: {self.vwap},"
               f"volatility: {self.vol},"
-              f"real_time_add_delete_ratio: {self.real_time_add_delete_ratio}")
+              f"real_time_add_delete_ratio: {self.real_time_add_delete_ratio},"
+              f"book_pressure: {self.book_pressure},"
+              f"vpin: {self.vpin}")
 
     def to_dict(self) -> dict:
         return {'ts': self.ts,
@@ -70,11 +84,14 @@ class ImmediateImpactStruct:
                 'bid_market_depth': self.bid_market_depth,
                 'ask_market_depth': self.ask_market_depth,
                 'order_quantity_imbalance': self.Imbalance,
+                'weighted_imbalance': self.weighted_Imbalance,
                 'short_amihub_illiquidity_ratio': self.short_Amihub_Illiquidity_Ratio,
                 'long_amihub_illiquidity_ratio': self.long_Amihub_Illiquidity_Ratio,
                 'vwap': self.vwap,
                 'volatility': self.vol,
-                'real_time_add_delete_ratio': self.real_time_add_delete_ratio}
+                'real_time_add_delete_ratio': self.real_time_add_delete_ratio,
+                'book_pressure': self.book_pressure,
+                'vpin': self.vpin}
 
 
 class ImmediateImpact:
@@ -88,6 +105,8 @@ class ImmediateImpact:
         self.tick_width = tick_width
         self.short_term_lookback = short_term_lookback
         self.long_term_lookback = long_term_lookback
+        self.streaming_vpin = StreamingVPIN(200)
+        self.online_vpin = OnlineVPIN(self.tick_width, self.streaming_vpin)
 
         # event statistics
         # add_order, delete_order, order_execution
@@ -98,19 +117,35 @@ class ImmediateImpact:
         # 维护计算实时波动率和流动性feature
         self.order_executed_price = list()
         self.order_executed_quantity = list()
+        self.order_executed_direction = list()
+        self.accumulated_executed_quantity = 0
         # 缓存过去2000条消息
         self.order_book_cache = deque(maxlen=2000)
-        # 价格冲击指标
-        self.feature_list = list()
 
+        # 价格冲击指标
         # 创建feature字典->pd.DataFrame, 用于最后模型计算
-        self.feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
-                                                 'executed_price', 'executed_quantity',
-                                                 'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
-                                                 'action', 'market_spread', 'bid_market_depth',
-                                                 'ask_market_depth', 'order_quantity_imbalance',
-                                                 'short_amihub_illiquidity_ratio', 'long_amihub_illiquidity_ratio',
-                                                 'vwap', 'volatility', 'real_time_add_delete_ratio'])
+        self.t_session_feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
+                                                           'executed_price', 'executed_quantity',
+                                                           'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
+                                                           'action', 'market_spread', 'bid_market_depth',
+                                                           'ask_market_depth', 'order_quantity_imbalance',
+                                                           'weighted_imbalance'
+                                                           'short_amihub_illiquidity_ratio',
+                                                           'long_amihub_illiquidity_ratio',
+                                                           'vwap', 'volatility', 'real_time_add_delete_ratio',
+                                                           'book_pressure', 'vpin'])
+
+        self.t1_session_feature_map = pd.DataFrame(columns=['ts', 'isb', 'price_level_diff',
+                                                            'executed_price', 'executed_quantity',
+                                                            'bid_side_liquidity_diff', 'ask_side_liquidity_diff',
+                                                            'action', 'market_spread', 'bid_market_depth',
+                                                            'ask_market_depth', 'order_quantity_imbalance',
+                                                            'weighted_imbalance',
+                                                            'short_amihub_illiquidity_ratio',
+                                                            'long_amihub_illiquidity_ratio',
+                                                            'vwap', 'volatility', 'real_time_add_delete_ratio',
+                                                            'book_pressure', 'vpin'])
+
         # trading session manager
         self.trading_session_mgr = Nikkei_225_Index_Futures_Trading_Session(initial_trading_date)
 
@@ -128,6 +163,8 @@ class ImmediateImpact:
         if self.market_data_filter(data) is False:
             return
 
+        suggested_result = self.online_vpin.process_market_update(data)
+        print(suggested_result)
         self.order_book_cache.append(data)
         if self.prev_ts is None:
             self.prev_ts = data.timestamp
@@ -158,7 +195,7 @@ class ImmediateImpact:
             level_diff = (self.order_book_cache[-1].ask1price - self.order_book_cache[
                 -2].ask1price) / self.tick_width
 
-        cur_result = ImmediateImpactStruct(
+        cur_executed_result = ImmediateImpactStruct(
             ts,
             self.order_book_cache[-1].isb,
             level_diff,
@@ -171,16 +208,20 @@ class ImmediateImpact:
             self.order_book_cache[-1].sum_bid_quantity,
             self.order_book_cache[-1].sum_ask_quantity,
             self.order_book_cache[-1].order_quantity_imbalance,
+            self.order_book_cache[-1].weighted_imbalance,
             self.short_term_ai_ratio,
             self.long_term_ai_ratio,
             self.real_time_vwap,
             self.real_time_realized_volatility,
-            self.real_time_add_cancel_ratio
+            self.real_time_add_cancel_ratio,
+            self.order_book_cache[-1].book_pressure
         )
 
-        cur_result.to_string()
-        self.feature_list.append(cur_result)
-        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
+        cur_executed_result.to_string()
+        if self.trading_session_mgr.is_t_session_opening_range(ts):
+            self.t_session_feature_map.loc[len(self.t_session_feature_map)] = cur_executed_result.to_dict()
+        if self.trading_session_mgr.is_t1_session_opening_range(ts):
+            self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_executed_result.to_dict()
 
     def norm_state_stat(self, ts: pd.Timestamp):
         bid_side_liquidity_diff = self.order_book_cache[-1].sum_bid_quantity - self.order_book_cache[
@@ -201,22 +242,33 @@ class ImmediateImpact:
             self.order_book_cache[-1].sum_bid_quantity,
             self.order_book_cache[-1].sum_ask_quantity,
             self.order_book_cache[-1].order_quantity_imbalance,
+            self.order_book_cache[-1].weighted_imbalance,
             self.short_term_ai_ratio,
             self.long_term_ai_ratio,
             self.real_time_vwap,
             self.real_time_realized_volatility,
-            self.real_time_add_cancel_ratio
+            self.real_time_add_cancel_ratio,
+            self.order_book_cache[-1].book_pressure
         )
 
         # cur_result.to_string()
         cur_result.to_string()
-        self.feature_list.append(cur_result)
-        self.feature_map.loc[len(self.feature_map)] = cur_result.to_dict()
+        if self.trading_session_mgr.is_t_session_opening_range(ts):
+            self.t_session_feature_map.loc[len(self.t_session_feature_map)] = cur_result.to_dict()
+        if self.trading_session_mgr.is_t1_session_opening_range(ts):
+            self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
         if data.action == Action.SecondOrderExecuted:
             self.order_executed_price.append(data.last_price)
             self.order_executed_quantity.append(data.last_quantity)
+            self.accumulated_executed_quantity += data.last_quantity
+            if data.isb:
+                # minus represent sell
+                self.order_executed_direction.append(-1)
+            else:
+                # positive represent buy
+                self.order_executed_direction.append(1)
             self.calc_price_level_impact_after_order_executed(data.timestamp)
             return
 
@@ -315,7 +367,8 @@ if __name__ == "__main__":
             md.calculate()
             immediate_impact.on_tick(md)
 
-    immediate_impact.feature_map.to_csv('./data/20230906/feature_map.csv')
+    immediate_impact.t_session_feature_map.to_csv('./data/20230906/t_session_feature_map.csv')
+    immediate_impact.t1_session_feature_map.to_csv('./data/20230906/t1_session_feature_map.csv')
 
     # bid_level_diff_array = list()
     # ask_level_diff_array = list()

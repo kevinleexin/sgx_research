@@ -1,12 +1,15 @@
+from SGX_order_action import Action
+from typing import Optional
+
 class sgx_market_data:
     def __init__(self, slice):
 
-        #self.timestamp = slice['t'].tz_localize('Asia/Singapore')
+        # self.timestamp = slice['t'].tz_localize('Asia/Singapore')
         self.timestamp = slice['t']
         self.action = slice['mc']
         self.isb = slice['isb']
 
-        #print(slice)
+        # print(slice)
         # 这里是单次成交的成交价格和成交量？
         self.last_price = slice['dp0']
         self.last_quantity = slice['dq0']
@@ -70,7 +73,7 @@ class sgx_market_data:
 
         self.ask10price = slice['ap09']
         self.ask10quantity = slice['aq09']
-        
+
         self.bid_prices = []
         self.bid_quantities = []
         self.sum_bid_quantity = 0
@@ -82,11 +85,33 @@ class sgx_market_data:
         self.ask_vwap_3 = 0
         self.market_spread = 0
         self.order_quantity_imbalance = 0
+        self.weighted_imbalance = 0
         self.last_price_x_quantity = 0
+        self.book_pressure = 0
 
     def is_valid(self):
         return self.bid1price > 0 and self.ask1price > 0 and self.bid1quantity > 0 and self.ask1quantity > 0
-    
+
+    def is_trade(self) -> bool:
+        if self.action == Action.FirstOrderExecuted or self.action == Action.SecondOrderExecuted:
+            return True
+        else:
+            return False
+
+    def get_direction(self) -> Optional[int]:
+        if self.isb and self.is_trade():
+            return -1
+        elif self.isb is False and self.is_trade():
+            return 1
+        else:
+            return None
+
+    def is_quote(self) -> bool:
+        if self.action == Action.AddOrder:
+            return True
+        else:
+            return False
+
     def calculate(self):
         self.bid_prices = [self.bid1price,
                            self.bid2price,
@@ -148,9 +173,53 @@ class sgx_market_data:
 
         self.last_price_x_quantity = self.last_price * self.last_quantity
 
+        weighted_bid_quantity = 0
+        weighted_ask_quantity = 0
+
+        for i, bid in enumerate(self.bid_quantities):
+            weighted_bid_quantity += bid * (0.8 ** i)
+        for j, ask in enumerate(self.ask_quantities):
+            weighted_ask_quantity += ask * (0.8 ** j)
+        total = weighted_bid_quantity + weighted_ask_quantity
+        self.weighted_imbalance = (weighted_bid_quantity - weighted_ask_quantity) / total if total > 0 else 0
+        self.book_pressure = self.calculate_book_pressure()
+
     def to_string(self):
         print("timestamp: {}, action: {}, isb: {}, last_price: {}, last_quantity: {}， "
               "bid1price: {}, bid1quantity: {}, ask1price: {}, ask1quantity: {}".format(
             self.timestamp, self.action, self.isb, self.last_price, self.last_quantity,
             self.bid1price, self.bid1quantity, self.ask1price, self.ask1quantity)
         )
+
+    def calculate_book_pressure(self) -> float:
+        """
+        Calculate order book pressure using price and volume
+        Positive value indicates buying pressure, negative indicates selling pressure
+        """
+        mid_price = self.calculate_mid_price()
+        if not mid_price:
+            return 0
+
+        bid_pressure = 0
+        ask_pressure = 0
+
+        for price, quantity in zip(self.bid_prices, self.bid_quantities):
+            price_distance = abs(mid_price - price)
+            if price_distance == 0:
+                continue
+            bid_pressure += (quantity / price_distance)
+
+        for price, quantity in zip(self.ask_prices, self.ask_quantities):
+            price_distance = abs(mid_price - price)
+            if price_distance == 0:
+                continue
+            ask_pressure += (quantity / price_distance)
+
+        total_pressure = bid_pressure + ask_pressure
+        return (bid_pressure - ask_pressure) / total_pressure if total_pressure > 0 else 0
+
+    def calculate_mid_price(self) -> float:
+        if self.bid1price and self.ask1price:
+            return (self.bid1price + self.ask1price) / 2
+        else:
+            return 0
