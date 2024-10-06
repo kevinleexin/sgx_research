@@ -84,8 +84,8 @@ class VpinCalculator:
         if self.current_bucket.start_time is None:
             self.current_bucket.start_time = trade.timestamp
 
-        buy_volume = trade.volume if trade.direction == 1 else 0
-        sell_volume = trade.volume if trade.direction == -1 else 0
+        buy_volume = abs(trade.volume) if trade.direction == 1 else 0
+        sell_volume = abs(trade.volume) if trade.direction == -1 else 0
 
         self.current_bucket.buy_volume += buy_volume
         self.current_bucket.sell_volume += sell_volume
