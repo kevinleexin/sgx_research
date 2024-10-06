@@ -6,6 +6,7 @@ import numpy as np
 from Trading_Session import Nikkei_225_Index_Futures_Trading_Session
 from typing import Optional
 import vpin_calculator
+import jump_detection
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -163,6 +164,15 @@ class ImmediateImpact:
         self.vpin = vpin_calculator.VpinCalculator(200)
         self.current_vpin = 0.0
 
+        config = jump_detection.JumpConfig(
+            window_size=100,
+            threshold_multiplier=4.0,
+            min_jump_size=0.0001,
+            decay_factor=0.94
+        )
+
+        self.jump_detector = jump_detection.JumpDetector(config)
+
     def on_tick(self, data: sgx_market_data):
         if self.market_data_filter(data) is False:
             return
@@ -285,6 +295,8 @@ class ImmediateImpact:
                 # positive represent buy
                 self.order_executed_direction.append(1)
             self.calc_price_level_impact_after_order_executed(data.timestamp)
+            jump_result = self.jump_detector.detect_jump(data.last_price, data.timestamp)
+            print(jump_result['is_jump'])
             return
 
         elif data.action == Action.AddOrder:
