@@ -42,7 +42,7 @@ class VPINBucket:
     def imbalance(self) -> float:
         if self.current_volume == 0:
             return 0
-        return abs(self.buy_volume - self.sell_volume) / self.current_volume
+        return float( abs(self.buy_volume - self.sell_volume) ) / float( self.current_volume )
 
     def duration(self) -> Optional[pd.Timedelta]:
         if self.start_time and self.end_time:
@@ -89,7 +89,7 @@ class VpinCalculator:
 
         self.current_bucket.buy_volume += buy_volume
         self.current_bucket.sell_volume += sell_volume
-        self.current_bucket.current_volume += trade.volume
+        self.current_bucket.current_volume += abs(trade.volume)
 
         if self.current_bucket.is_complete():
             self.current_bucket.end_time = trade.timestamp
@@ -138,7 +138,7 @@ class VpinCalculator:
             return "HIGH"
 
     def get_last_vpin(self) -> Optional[float]:
-        if len(self.metrics['vpin_value']) > 0:
+        if 'vpin_value' in self.metrics  and  len(self.metrics['vpin_value']) > 0:
             return self.metrics['vpin_value'][-1]
         else:
             return None

@@ -273,7 +273,7 @@ class ImmediateImpact:
             self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
-        cur_vpin = self.vpin.on_tick
+        cur_vpin = self.vpin.on_tick(data)
         if cur_vpin:
             self.current_vpin = cur_vpin
         else:
