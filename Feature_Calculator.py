@@ -5,7 +5,7 @@ import pandas as pd
 import numpy as np
 from Trading_Session import Nikkei_225_Index_Futures_Trading_Session
 from typing import Optional
-from Streaming_Vpin import OnlineVPIN, StreamingVPIN
+import vpin_calculator
 
 import seaborn as sns
 import matplotlib.pyplot as plt
@@ -17,7 +17,7 @@ class ImmediateImpactStruct:
                  spread=0, b_market_depth=0, a_market_depth=0, imbalance=0.0, wimbalance=0.0,
                  short_ai_ratio=0.0, long_ai_ratio=0.0,
                  vwap=0.0, vol=0.0, add_delete_ratio=0.0,
-                 book_pressure=0.0):
+                 book_pressure=0.0, vpin=0.0):
         self.ts = ts
         self.isb = isb
         self.price_level_diff = level_diff  # y
@@ -47,7 +47,7 @@ class ImmediateImpactStruct:
         self.book_pressure = book_pressure
 
         # vpin
-        self.vpin : Optional[float] = 0.0
+        self.vpin = vpin
 
     def to_string(self):
         print(f"ts: {self.ts},"
@@ -105,8 +105,7 @@ class ImmediateImpact:
         self.tick_width = tick_width
         self.short_term_lookback = short_term_lookback
         self.long_term_lookback = long_term_lookback
-        self.streaming_vpin = StreamingVPIN(200)
-        self.online_vpin = OnlineVPIN(self.tick_width, self.streaming_vpin)
+
 
         # event statistics
         # add_order, delete_order, order_execution
@@ -118,6 +117,7 @@ class ImmediateImpact:
         self.order_executed_price = list()
         self.order_executed_quantity = list()
         self.order_executed_direction = list()
+        self.order_executed_timestamp = list()
         self.accumulated_executed_quantity = 0
         # 缓存过去2000条消息
         self.order_book_cache = deque(maxlen=2000)
@@ -160,12 +160,13 @@ class ImmediateImpact:
         self.real_time_add_cancel_ratio = 0.0
         self.real_time_realized_volatility = 0.0
 
+        self.vpin = vpin_calculator.VpinCalculator(200)
+        self.current_vpin = 0.0
+
     def on_tick(self, data: sgx_market_data):
         if self.market_data_filter(data) is False:
             return
 
-        suggested_result = self.online_vpin.process_market_update(data)
-        print(suggested_result)
         self.order_book_cache.append(data)
         if self.prev_ts is None:
             self.prev_ts = data.timestamp
@@ -215,7 +216,8 @@ class ImmediateImpact:
             self.real_time_vwap,
             self.real_time_realized_volatility,
             self.real_time_add_cancel_ratio,
-            self.order_book_cache[-1].book_pressure
+            self.order_book_cache[-1].book_pressure,
+            self.current_vpin
         )
 
         cur_executed_result.to_string()
@@ -249,7 +251,8 @@ class ImmediateImpact:
             self.real_time_vwap,
             self.real_time_realized_volatility,
             self.real_time_add_cancel_ratio,
-            self.order_book_cache[-1].book_pressure
+            self.order_book_cache[-1].book_pressure,
+            self.current_vpin
         )
 
         # cur_result.to_string()
@@ -260,7 +263,18 @@ class ImmediateImpact:
             self.t1_session_feature_map.loc[len(self.t1_session_feature_map)] = cur_result.to_dict()
 
     def event_statistic(self, data):
-        if data.action == Action.SecondOrderExecuted:
+        cur_vpin = self.vpin.on_tick
+        if cur_vpin:
+            self.current_vpin = cur_vpin
+        else:
+            last_vpin = self.vpin.get_last_vpin()
+            if last_vpin:
+                self.current_vpin = last_vpin
+            else:
+                self.current_vpin = 0.0
+
+        if data.action == Action.SecondOrderExecuted or data.action == Action.FirstOrderExecuted:
+            self.order_executed_timestamp.append(data.timestamp)
             self.order_executed_price.append(data.last_price)
             self.order_executed_quantity.append(data.last_quantity)
             self.accumulated_executed_quantity += data.last_quantity

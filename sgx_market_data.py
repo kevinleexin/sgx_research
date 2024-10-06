@@ -107,7 +107,7 @@ class sgx_market_data:
             return None
 
     def is_quote(self) -> bool:
-        if self.action == Action.AddOrder:
+        if self.action == Action.AddOrder or self.action == Action.OrderDelete:
             return True
         else:
             return False
