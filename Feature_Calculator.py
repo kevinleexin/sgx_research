@@ -7,7 +7,11 @@ from Trading_Session import Nikkei_225_Index_Futures_Trading_Session
 from typing import Optional
 import vpin_calculator
 import jump_detection
+from logger import MyLogger as log
 
+import os
+import datetime
+from multiprocessing import Pool
 import seaborn as sns
 import matplotlib.pyplot as plt
 
@@ -51,7 +55,7 @@ class ImmediateImpactStruct:
         self.vpin = vpin
 
     def to_string(self):
-        print(f"ts: {self.ts},"
+        log().info(f"ts: {self.ts},"
               f"isb: {self.isb}, "
               f"price_level_diff: {self.price_level_diff},"
               f"executed_price: {self.executed_price}, "
@@ -100,7 +104,7 @@ class ImmediateImpact:
     统计瞬时冲击
     """
 
-    def __init__(self, tick_width, initial_trading_date: str, short_term_lookback: int, long_term_lookback: int):
+    def __init__(self, tick_width, initial_trading_date: datetime, short_term_lookback: int, long_term_lookback: int):
         self.cur_ts = None
         self.prev_ts = None
         self.tick_width = tick_width
@@ -296,7 +300,7 @@ class ImmediateImpact:
                 self.order_executed_direction.append(1)
             self.calc_price_level_impact_after_order_executed(data.timestamp)
             jump_result = self.jump_detector.detect_jump(data.last_price, data.timestamp)
-            print(jump_result['is_jump'])
+            log().info(jump_result['is_jump'])
             return
 
         elif data.action == Action.AddOrder:
@@ -316,21 +320,21 @@ class ImmediateImpact:
     def market_data_filter(self, data):
         # filter non-trading session
         if data.bid1price >= data.ask1price:
-            # print(f"bid1price: {data.bid1price}, ask1price: {data.ask1price}")
+            #log().info(f"bid1price: {data.bid1price}, ask1price: {data.ask1price}")
             return False
         # filter non-opening session
         elif self.trading_session_mgr.is_t_session_pre_open_range(data.timestamp):
-            # print(f"is_t_session_pre_open_range: {data.timestamp}")
+            #log().info(f"is_t_session_pre_open_range: {data.timestamp}")
             return False
         elif self.trading_session_mgr.is_t_session_pre_closing_range(data.timestamp):
-            # print(f"is_t_session_pre_closing_range: {data.timestamp}")
+            #log().info(f"is_t_session_pre_closing_range: {data.timestamp}")
             return False
         elif self.trading_session_mgr.is_t1_session_pre_open_range(data.timestamp):
-            # print(f"is_t1_session_pre_open_range: {data.timestamp}")
+            #log().info(f"is_t1_session_pre_open_range: {data.timestamp}")
             return False
 
         else:
-            # print (f"opening: {data.timestamp}")
+            #log().info (f"opening: {data.timestamp}")
             return True
 
     def real_time_vwap_calc(self) -> float:
@@ -353,11 +357,11 @@ class ImmediateImpact:
         # 实时维护已实现的波动率计算
         log_returns = np.diff(np.log(self.order_executed_price[-lookback:]))
         realized_volatility = np.sqrt(np.sum(log_returns ** 2)) * 100
-        # print(f"Realized_Volatility: {realized_volatility}")
+        # log().info(f"Realized_Volatility: {realized_volatility}")
         return realized_volatility
 
     def real_time_add_delete_ratio_calc(self, lookback):
-        # print(f"add_order_event: {self.add_order_event}, delete_order_event: {self.delete_order_event}, loopback: {lookback}")
+        # log().info(f"add_order_event: {self.add_order_event}, delete_order_event: {self.delete_order_event}, loopback: {lookback}")
         if len(self.add_order_event) >= lookback and len(self.delete_order_event) >= lookback:
             return 0.0 if sum(self.add_order_event[-lookback:]) == 0 else sum(
                 self.delete_order_event[-lookback:]) / sum(self.add_order_event[-lookback:])
@@ -373,18 +377,20 @@ class PermanentImpact:
     def __init__(self):
         pass
 
+def handle_one_day_one_instrument_data(filepath : str):
+    """
+    处理单日数据
+    """
+    if not os.path.exists(filepath):
+        log().info(f"file {filepath} not exists")
+        return
+    
+    date_str = os.path.normpath(filepath).split(os.path.sep)[-2]
+    log().info(f"processing {filepath}")
 
-if __name__ == "__main__":
-
-    # 实际跑全量feature计算时，使用processpool来并行多天的feature的同时计算
-
-    immediate_impact = ImmediateImpact(5, '2023-09-06 ', 10, 50)
-    # market_data = pd.read_parquet('./data/20230904/20230904-SG28228467-P1-NKZ23-8323274.lvls.parquet')
-    # market_data = pd.read_parquet('./data/20230905/20230905-SG28231055-P1-NKZ23-8323274.lvls.parquet')
-    market_data = pd.read_parquet('./data/20230906/20230906-SG28232495-P1-NKZ23-8323274.lvls.parquet')
-    # market_data = pd.read_parquet('./data/20230907/20230907-SG28233935-P1-NKZ23-8323274.lvls.parquet')
-    # market_data = pd.read_parquet('./data/20230908/20230908-SG28235375-P1-NKZ23-8323274.lvls.parquet')
-    # print(market_data.head())
+    date = pd.to_datetime(date_str, format='%Y%m%d')
+    immediate_impact = ImmediateImpact(5, date , 10, 50)
+    market_data = pd.read_parquet(path=filepath)
 
     market_data['t'] = pd.to_datetime(market_data['t']).dt.tz_localize('UTC').dt.tz_convert('Asia/Singapore')
 
@@ -394,8 +400,32 @@ if __name__ == "__main__":
             md.calculate()
             immediate_impact.on_tick(md)
 
-    immediate_impact.t_session_feature_map.to_csv('./data/20230906/t_session_feature_map.csv')
-    immediate_impact.t1_session_feature_map.to_csv('./data/20230906/t1_session_feature_map.csv')
+    directory = os.path.dirname(filepath)
+    immediate_impact.t_session_feature_map.to_csv( os.path.join(directory, 't_session_feature_map.csv'))
+    immediate_impact.t1_session_feature_map.to_csv( os.path.join(directory, 't1_session_feature_map.csv'))
+    
+    return date_str
+
+def get_all_data_path(data_path):
+    """
+    获取所有数据路径
+    """
+    all_files = []
+    for root, dirs, files in os.walk(data_path):
+        for file in files:
+            if file.endswith('.parquet'):
+                all_files.append(  os.path.join(root, file) )
+    return all_files
+
+if __name__ == "__main__":
+    log().info('Start processing data')
+    
+    with Pool(8) as p:
+        inputs = get_all_data_path('./data')
+        results = p.map(handle_one_day_one_instrument_data, inputs)
+
+        log().info("Results: {results}")
+        
 
     # bid_level_diff_array = list()
     # ask_level_diff_array = list()

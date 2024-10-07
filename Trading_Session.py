@@ -1,7 +1,8 @@
 import pandas as pd
 from dataclasses import dataclass
 from pytz import timezone
-
+import datetime
+from logger import MyLogger as log
 """
 Singapore Exchange Nikkei 225 Index Futures
 """
@@ -9,21 +10,20 @@ Singapore Exchange Nikkei 225 Index Futures
 
 @dataclass
 class Nikkei_225_Index_Futures_Trading_Session:
-    def __init__(self, trading_date: str):
+    def __init__(self, trading_date: datetime):
         self.trading_date = trading_date
         self.timezone = timezone('Asia/Singapore')
-        self.T_Session_Pre_Open_Start = pd.Timestamp(self.trading_date + ' 07:15:00.000000', tz=self.timezone)
-        self.T_Session_Pre_Open_End = pd.Timestamp(self.trading_date + '07:30:00.000000', tz=self.timezone)
+        
+        base_date = pd.Timestamp(self.trading_date, tz=self.timezone)
+        self.T_Session_Pre_Open_Start = base_date + pd.Timedelta(hours=7, minutes=15)
+        self.T_Session_Pre_Open_End = base_date + pd.Timedelta(hours=7, minutes=30)
+        self.T_Session_Pre_Closing_Start = base_date + pd.Timedelta(hours=14, minutes=25)
+        self.T_Session_Pre_Closing_End = base_date + pd.Timedelta(hours=14, minutes=30)
+        self.T1_Session_Pre_Open_Start = base_date + pd.Timedelta(hours=14, minutes=45)
+        self.T1_Session_Pre_Open_End = base_date + pd.Timedelta(hours=14, minutes=55)
+        self.T1_Session_Opening_End = base_date + pd.Timedelta(hours=17, minutes=15)
 
-        self.T_Session_Pre_Closing_Start = pd.Timestamp(self.trading_date + '14:25:00.000000', tz=self.timezone)
-        self.T_Session_Pre_Closing_End = pd.Timestamp(self.trading_date + '14:30:00.000000', tz=self.timezone)
-
-        self.T1_Session_Pre_Open_Start = pd.Timestamp(self.trading_date + '14:45:00.000000', tz=self.timezone)
-        self.T1_Session_Pre_Open_End = pd.Timestamp(self.trading_date + '14:55:00.000000', tz=self.timezone)
-
-        self.T1_Session_Opening_End = pd.Timestamp(self.trading_date + '17:15:00.000000', tz=self.timezone)
-
-        print(f"Trading Date: {self.trading_date}, T_Session_Pre_Open_Start: {self.T_Session_Pre_Open_Start}, "
+        log().info(f"Trading Date: {self.trading_date}, T_Session_Pre_Open_Start: {self.T_Session_Pre_Open_Start}, "
               f"T_Session_Pre_Open_End: {self.T_Session_Pre_Open_End}, "
               f"T_Session_Pre_Closing_Start: {self.T_Session_Pre_Closing_Start}, "
               f"T_Session_Pre_Closing_End: {self.T_Session_Pre_Closing_End}, "

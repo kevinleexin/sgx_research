@@ -1,5 +1,6 @@
 from SGX_order_action import Action
 from typing import Optional
+from logger import MyLogger as log
 
 class sgx_market_data:
     def __init__(self, slice):
@@ -185,7 +186,7 @@ class sgx_market_data:
         self.book_pressure = self.calculate_book_pressure()
 
     def to_string(self):
-        print("timestamp: {}, action: {}, isb: {}, last_price: {}, last_quantity: {}， "
+        log().info("timestamp: {}, action: {}, isb: {}, last_price: {}, last_quantity: {}， "
               "bid1price: {}, bid1quantity: {}, ask1price: {}, ask1quantity: {}".format(
             self.timestamp, self.action, self.isb, self.last_price, self.last_quantity,
             self.bid1price, self.bid1quantity, self.ask1price, self.ask1quantity)
